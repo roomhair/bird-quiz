@@ -1,0 +1,46 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - claude/bird-quiz-creation-b1qta3
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # どのブランチでも走る検証。1ファイル版がソースと同期しているか確かめる。
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check standalone build is up to date
+        run: |
+          node build-standalone.js
+          git diff --exit-code -- dist/bird-quiz.html \
+            || { echo '::error::dist/bird-quiz.html が古いです。node build-standalone.js を実行してコミットしてください。'; exit 1; }
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  # Pages 環境は既定でデフォルトブランチからのデプロイしか許可しないため main 限定。
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

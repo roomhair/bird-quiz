@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>世界の鳥あてクイズ</title>
+<meta name="description" content="世界の鳥の写真を見て、その種類を10個の選択肢から当てるクイズ。選択肢は設問ごとに変わります。">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🦜</text></svg>">
+</head>
+<body>
+
+<header class="site-header">
+  <h1 class="site-title">世界の鳥あてクイズ</h1>
+  <button id="theme-toggle" class="icon-btn" type="button" aria-label="配色を切り替える">◐</button>
+</header>
+
+<main id="app">
+
+  <!-- ============ スタート画面 ============ -->
+  <section id="screen-start" class="screen">
+    <p class="lead">
+      世界の鳥の写真が1枚表示されます。<br>
+      その鳥の名前を<strong>10個の選択肢</strong>から選んでください。
+    </p>
+    <p class="lead-sub">選択肢の顔ぶれは設問ごとに選び直されます。同じ問題でも並ぶ名前は毎回変わります。</p>
+
+    <div class="field">
+      <span class="field-label">出題数</span>
+      <div class="seg" role="radiogroup" aria-label="出題数">
+        <button type="button" class="seg-btn is-active" data-count="10" role="radio" aria-checked="true">10問</button>
+        <button type="button" class="seg-btn" data-count="20" role="radio" aria-checked="false">20問</button>
+        <button type="button" class="seg-btn" data-count="0" role="radio" aria-checked="false">全問</button>
+      </div>
+    </div>
+
+    <button id="btn-start" class="btn btn-primary btn-lg" type="button">スタート</button>
+
+    <div class="roster">
+      <p class="roster-title">出題される鳥 <span id="roster-count" class="roster-count"></span></p>
+      <ul id="roster-list" class="roster-list"></ul>
+      <p class="roster-note">グループは出題の都合でゆるく括ったもので、分類学上の区分とは一致しません。選択肢には同じグループの鳥が優先的に混ざります。</p>
+    </div>
+  </section>
+
+  <!-- ============ 出題画面 ============ -->
+  <section id="screen-quiz" class="screen" hidden>
+    <div class="progress">
+      <div class="progress-meta">
+        <span id="progress-text">1 / 10</span>
+        <span id="score-text">正解 0</span>
+      </div>
+      <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+    </div>
+
+    <figure class="photo">
+      <div id="photo-frame" class="photo-frame is-loading">
+        <img id="photo-img" alt="">
+        <div id="photo-status" class="photo-status"><span class="spinner"></span></div>
+      </div>
+      <figcaption id="photo-caption" class="photo-caption" hidden></figcaption>
+    </figure>
+
+    <p class="prompt">この鳥は？</p>
+
+    <div id="choices" class="choices" role="group" aria-label="鳥を選ぶ"></div>
+
+    <div id="verdict" class="verdict" hidden>
+      <p id="verdict-line" class="verdict-line"></p>
+      <div class="detail">
+        <h2 id="detail-title" class="detail-title"></h2>
+        <p id="detail-sci" class="detail-sci"></p>
+        <p id="detail-meta" class="detail-meta"></p>
+        <p id="detail-note" class="detail-note"></p>
+        <a id="detail-link" class="detail-link" href="#" target="_blank" rel="noopener">Wikipediaで見る ↗</a>
+      </div>
+      <button id="btn-next" class="btn btn-primary btn-lg" type="button">次の問題へ</button>
+    </div>
+  </section>
+
+  <!-- ============ 結果画面 ============ -->
+  <section id="screen-result" class="screen" hidden>
+    <div class="result-head">
+      <p id="result-rank" class="result-rank"></p>
+      <p class="result-score"><span id="result-correct">0</span><span class="result-slash">/</span><span id="result-total">0</span></p>
+      <p id="result-comment" class="result-comment"></p>
+    </div>
+
+    <h2 class="section-title">解答一覧</h2>
+    <ul id="review-list" class="review-list"></ul>
+
+    <div class="result-actions">
+      <button id="btn-retry" class="btn btn-primary btn-lg" type="button">もう一度</button>
+      <button id="btn-home" class="btn btn-ghost" type="button">最初の画面へ</button>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <p>写真は各種のWikipedia記事の代表画像を実行時に読み込んでいます。著作権は各撮影者に帰属します。</p>
+</footer>
+
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
