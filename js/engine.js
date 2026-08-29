@@ -1,20 +1,29 @@
 'use strict';
 
 /* =========================================================
-   世界の鳥あてクイズ
+   写真あてクイズ エンジン（題材非依存）
+
+   data.js が定義する QUIZ を読んで動く。QUIZ の形は data.js の
+   先頭コメントを参照。このファイルは題材を知らないので、別の
+   クイズを作るときは data.js だけ差し替えればよい。
+
+   題材ごとに変えたくなるところは QUIZ の任意フックで差し替える。
+   未指定なら既定の動きになる。
+     keys        キーボードショートカットに使う文字の並び
+     distractors (question, pool, n) => ダミーの選択肢。既定はプールからランダム
+     detailSub   (q, answer) => 解説カードの2行目（学名など）
+     reviewSub   (q, answer) => 結果一覧の副題。既定は正解の名前
+     roster      () => スタート画面の一覧のHTML。既定は選択肢の平坦な一覧
    ========================================================= */
 
 const $ = (id) => document.getElementById(id);
-const byId = Object.fromEntries(BIRDS.map((b) => [b.id, b]));
-const groupLabel = Object.fromEntries(GROUPS.map((g) => [g.id, g.label]));
-
-const CHOICE_COUNT = 10;                  // 1問あたりの選択肢の数
-const KEYS = '1234567890'.split('');      // 選択肢1〜10に割り当てるショートカット
+const byId = Object.fromEntries(QUIZ.choices.map((c) => [c.id, c]));
+const KEYS = (QUIZ.keys || 'ASDFGHJKLZXCVBNM').split(''); // 選択肢に順に割り当てるショートカット
 
 const state = {
-  queue: [],       // { bird, choices } の配列
+  queue: [],       // { question, choices } の配列
   index: 0,
-  answers: [],     // { bird, choices, picked, correct }
+  answers: [],     // { question, picked, correct }
   answered: false,
   requestedCount: 10,
 };
@@ -24,7 +33,7 @@ const state = {
    REST API から記事の代表画像を引く（ja → en の順）。
    結果は sessionStorage にキャッシュする。            */
 
-const IMG_CACHE_KEY = 'birdquiz.img.v1';
+const IMG_CACHE_KEY = `quiz.img.${QUIZ.id}.v1`;
 const imgCache = loadCache();
 
 function loadCache() {
@@ -57,25 +66,25 @@ async function fetchWikiImage(lang, title) {
   };
 }
 
-async function resolveImage(bird) {
-  if (bird.image) return { url: bird.image, page: null, label: null };
-  if (imgCache[bird.id]) return imgCache[bird.id];
+async function resolveImage(q) {
+  if (q.image) return { url: q.image, page: null, label: null };
+  if (imgCache[q.id]) return imgCache[q.id];
 
-  const candidates = [['ja', bird.wiki && bird.wiki.ja], ['en', bird.wiki && bird.wiki.en]];
+  const candidates = [['ja', q.wiki && q.wiki.ja], ['en', q.wiki && q.wiki.en]];
   for (const [lang, title] of candidates) {
     if (!title) continue;
     try {
       const found = await fetchWikiImage(lang, title);
-      if (found) { imgCache[bird.id] = found; saveCache(); return found; }
+      if (found) { imgCache[q.id] = found; saveCache(); return found; }
     } catch (_) { /* 次の候補へ */ }
   }
   return null;
 }
 
 // 次の問題の画像を先読みして待ち時間を減らす
-function prefetch(item) {
-  if (!item) return;
-  resolveImage(item.bird).then((info) => {
+function prefetch(entry) {
+  if (!entry) return;
+  resolveImage(entry.question).then((info) => {
     if (info) { const im = new Image(); im.src = info.url; }
   }).catch(() => {});
 }
@@ -91,49 +100,38 @@ function shuffle(arr) {
   return a;
 }
 
-function randInt(min, max) {           // min 以上 max 以下
-  return min + Math.floor(Math.random() * (max - min + 1));
+// その問題で並べる選択肢。choicesPerQuestion が選択肢総数より少なければ、
+// 正解＋ダミーを抜き出す。0 や未指定なら常に全選択肢。
+// ダミーの選び方は QUIZ.distractors(question, pool, n) で差し替えられる。
+// 未指定ならプールからランダムに取る。
+function choicesFor(q) {
+  const n = QUIZ.choicesPerQuestion;
+  if (!n || n >= QUIZ.choices.length) return QUIZ.choices;
+  const pool = QUIZ.choices.filter((c) => c.id !== q.answer);
+  const decoys = (QUIZ.distractors ? QUIZ.distractors(q, pool, n - 1) : shuffle(pool))
+    .slice(0, n - 1);
+  return shuffle([byId[q.answer], ...decoys]);
 }
 
-/* ---------- 選択肢の組み立て ------------------------------
-   正解1 + ダミー9 の計10個。ダミーはまず同じグループから
-   3〜5種を取り、残りを他のグループから埋める。こうすると
-   「ペンギンばかり」にも「まったくの寄せ集め」にもならない。
-   毎問組み直すので、同じ鳥でも並ぶ顔ぶれは毎回変わる。   */
-
-function buildChoices(bird) {
-  const near = shuffle(BIRDS.filter((b) => b.id !== bird.id && b.group === bird.group));
-  const far  = shuffle(BIRDS.filter((b) => b.id !== bird.id && b.group !== bird.group));
-
-  const nearWanted = Math.min(near.length, randInt(3, 5));
-  const decoys = near.slice(0, nearWanted)
-    .concat(far)
-    .slice(0, CHOICE_COUNT - 1);
-
-  return shuffle([bird, ...decoys]);
-}
-
-// できるだけグループが偏らないように出題する鳥を選ぶ
-function pickQuestions(count) {
-  const byGroup = new Map();
-  for (const b of shuffle(BIRDS)) {
-    if (!byGroup.has(b.group)) byGroup.set(b.group, []);
-    byGroup.get(b.group).push(b);
+// できるだけ正解が偏らないように出題を選ぶ
+function buildQueue(count) {
+  const byAnswer = new Map();
+  for (const q of shuffle(QUIZ.questions)) {
+    if (!byAnswer.has(q.answer)) byAnswer.set(q.answer, []);
+    byAnswer.get(q.answer).push(q);
   }
-  const groups = shuffle([...byGroup.values()]);
+  const groups = shuffle([...byAnswer.values()]);
   const picked = [];
-  let round = 0;
-  while (picked.length < BIRDS.length) {
+  for (let round = 0; picked.length < QUIZ.questions.length; round++) {
     let added = false;
     for (const g of groups) {
       if (g[round]) { picked.push(g[round]); added = true; }
     }
     if (!added) break;
-    round++;
   }
   const total = count > 0 ? Math.min(count, picked.length) : picked.length;
   return shuffle(picked.slice(0, total))
-    .map((bird) => ({ bird, choices: buildChoices(bird) }));
+    .map((question) => ({ question, choices: choicesFor(question) }));
 }
 
 function showScreen(name) {
@@ -145,27 +143,49 @@ function showScreen(name) {
 
 /* ---------- スタート画面 ---------- */
 
-function renderRoster() {
-  $('roster-count').textContent = `全${BIRDS.length}種`;
-  $('roster-list').innerHTML = GROUPS.map((g) => {
-    const members = BIRDS.filter((b) => b.group === g.id);
-    return `<li>
-      <span class="roster-group">${g.label}<span class="roster-num">${members.length}種</span></span>
-      <span class="roster-members">${members.map((b) => b.name).join('・')}</span>
-    </li>`;
-  }).join('');
+// 対応する要素が無い題材もあるので、見つからなければ黙って飛ばす
+function fill(id, html) {
+  const el = $(id);
+  if (el && html != null) el.innerHTML = html;
+}
+
+function applyCopy() {
+  document.title = QUIZ.title;
+  fill('site-title', QUIZ.title);
+  fill('lead', QUIZ.lead);
+  fill('lead-sub', QUIZ.leadSub);
+  fill('prompt', QUIZ.prompt);
+  fill('roster-title', QUIZ.rosterTitle);
+  fill('roster-count', QUIZ.rosterCount);
+  fill('credit', QUIZ.credit);
+  $('choices').setAttribute('aria-label', QUIZ.prompt);
+
+  // 一覧の見せ方は QUIZ.roster() で差し替えられる（グループ分けしたい題材向け）
+  $('roster-list').innerHTML = QUIZ.roster
+    ? QUIZ.roster()
+    : QUIZ.choices.map((c) => `<li>${c.name}<span>${c.sub || ''}</span></li>`).join('');
+
+  // 出題数の選択肢は問題数に合わせて出し入れする
+  document.querySelectorAll('.seg-btn').forEach((btn) => {
+    const n = Number(btn.dataset.count);
+    btn.hidden = n > 0 && n >= QUIZ.questions.length;
+  });
+  const visible = [...document.querySelectorAll('.seg-btn')].filter((b) => !b.hidden);
+  selectCount(visible[0]);
+}
+
+function selectCount(btn) {
+  document.querySelectorAll('.seg-btn').forEach((b) => {
+    b.classList.toggle('is-active', b === btn);
+    b.setAttribute('aria-checked', String(b === btn));
+  });
+  state.requestedCount = Number(btn.dataset.count);
 }
 
 function initStart() {
-  renderRoster();
+  applyCopy();
   document.querySelectorAll('.seg-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.seg-btn').forEach((b) => {
-        b.classList.toggle('is-active', b === btn);
-        b.setAttribute('aria-checked', String(b === btn));
-      });
-      state.requestedCount = Number(btn.dataset.count);
-    });
+    btn.addEventListener('click', () => selectCount(btn));
   });
   $('btn-start').addEventListener('click', startQuiz);
 }
@@ -173,30 +193,30 @@ function initStart() {
 /* ---------- 出題 ---------- */
 
 function startQuiz() {
-  state.queue = pickQuestions(state.requestedCount);
+  state.queue = buildQueue(state.requestedCount);
   state.index = 0;
   state.answers = [];
   showScreen('quiz');
   renderQuestion();
 }
 
-function renderChoices(item) {
+function renderChoices(choices) {
   const box = $('choices');
   box.innerHTML = '';
-  item.choices.forEach((b, i) => {
+  choices.forEach((c, i) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'choice';
-    btn.dataset.bird = b.id;
-    btn.innerHTML = `<span class="key">${KEYS[i] || ''}</span>${b.name}`;
-    btn.addEventListener('click', () => answer(b.id));
+    btn.dataset.choice = c.id;
+    btn.innerHTML = `<span class="key">${KEYS[i] || ''}</span>${c.name}`;
+    btn.addEventListener('click', () => answer(c.id));
     box.appendChild(btn);
   });
 }
 
 async function renderQuestion() {
-  const item = state.queue[state.index];
-  const bird = item.bird;
+  const entry = state.queue[state.index];
+  const q = entry.question;
   state.answered = false;
 
   $('progress-text').textContent = `${state.index + 1} / ${state.queue.length}`;
@@ -205,7 +225,7 @@ async function renderQuestion() {
 
   $('verdict').hidden = true;
   $('photo-caption').hidden = true;
-  renderChoices(item);                      // 選択肢は問題ごとに作り直す
+  renderChoices(entry.choices);
 
   const frame = $('photo-frame');
   const img = $('photo-img');
@@ -214,70 +234,74 @@ async function renderQuestion() {
   img.removeAttribute('src');
   $('photo-status').innerHTML = '<span class="spinner"></span>';
 
-  const token = bird.id;                    // 読み込み中に次へ進んだ場合の取り違え防止
-  const info = await resolveImage(bird);
-  if (state.queue[state.index].bird.id !== token) return;
+  const token = q.id;                       // 読み込み中に次へ進んだ場合の取り違え防止
+  const info = await resolveImage(q);
+  if (state.queue[state.index].question.id !== token) return;
 
   if (!info) { failPhoto('写真を読み込めませんでした。<br>オフラインの可能性があります。'); return; }
 
   img.onload = () => {
-    if (state.queue[state.index].bird.id !== token) return;
+    if (state.queue[state.index].question.id !== token) return;
     frame.classList.remove('is-loading');
     frame.classList.add('is-ready');
   };
   img.onerror = () => {
-    if (state.queue[state.index].bird.id !== token) return;
+    if (state.queue[state.index].question.id !== token) return;
     failPhoto('写真を読み込めませんでした。');
   };
   img.src = info.url;
-  item.source = info;
+  q._source = info;
 
   prefetch(state.queue[state.index + 1]);
 }
 
 function failPhoto(message) {
-  const frame = $('photo-frame');
-  frame.classList.remove('is-ready');
+  $('photo-frame').classList.remove('is-ready');
   $('photo-status').innerHTML = message;
 }
 
 /* ---------- 解答 ---------- */
 
-function answer(birdId) {
+function answer(choiceId) {
   if (state.answered) return;
   state.answered = true;
 
-  const item = state.queue[state.index];
-  const bird = item.bird;
-  const correct = birdId === bird.id;
-  state.answers.push({ bird, choices: item.choices, picked: birdId, correct });
+  const q = state.queue[state.index].question;
+  const correct = choiceId === q.answer;
+  state.answers.push({ question: q, picked: choiceId, correct });
 
   document.querySelectorAll('.choice').forEach((btn) => {
     btn.disabled = true;
-    const id = btn.dataset.bird;
-    if (id === bird.id) btn.classList.add('is-correct');
-    else if (id === birdId) btn.classList.add('is-wrong');
+    const id = btn.dataset.choice;
+    if (id === q.answer) btn.classList.add('is-correct');
+    else if (id === choiceId) btn.classList.add('is-wrong');
     else btn.classList.add('is-dim');
   });
 
   const line = $('verdict-line');
-  line.textContent = correct ? '正解' : `不正解 — 正解は ${bird.name}`;
+  line.textContent = correct ? '正解' : `不正解 — 正解は ${byId[q.answer].name}`;
   line.className = `verdict-line ${correct ? 'ok' : 'ng'}`;
 
-  $('detail-title').textContent = `${bird.name}（${bird.en}）`;
-  $('detail-sci').textContent = bird.sci;
-  $('detail-meta').textContent = `${bird.taxon}／${bird.region}／${bird.size}`;
-  $('detail-note').textContent = bird.note;
+  $('detail-title').textContent = q.title;
+  $('detail-meta').textContent = QUIZ.meta(q, byId[q.answer]);
+  $('detail-note').textContent = q.note;
 
+  const sub = $('detail-sub');
+  if (sub) {
+    const text = QUIZ.detailSub ? QUIZ.detailSub(q, byId[q.answer]) : '';
+    sub.textContent = text || '';
+    sub.hidden = !text;
+  }
+
+  const page = q._source && q._source.page;
   const link = $('detail-link');
-  const page = item.source && item.source.page;
   link.hidden = !page;
   if (page) link.href = page;
 
   // 出典表示は解答後に（記事名が答えのヒントになるため）
-  if (item.source && item.source.page) {
+  if (page) {
     const cap = $('photo-caption');
-    cap.innerHTML = `写真: <a href="${item.source.page}" target="_blank" rel="noopener">${item.source.label}</a> より`;
+    cap.innerHTML = `写真: <a href="${page}" target="_blank" rel="noopener">${q._source.label}</a> より`;
     cap.hidden = false;
   }
 
@@ -303,31 +327,27 @@ function showResult() {
   const total = state.answers.length;
   const correct = state.answers.filter((a) => a.correct).length;
   const rate = correct / total;
-
-  const grades = [
-    [0.999, '鳥類学者', '全問正解。図鑑を1冊書けます。'],
-    [0.8,   'バードウォッチャー', '嘴と脚の形まで見えています。'],
-    [0.6,   '愛鳥家', '世界の主要な鳥はしっかり押さえています。'],
-    [0.4,   '観察見習い', '大きさ・嘴の形・棲む場所の3点に注目すると絞り込めます。'],
-    [0,     '初学者', 'まずは大きなグループの見分けから。もう一周してみましょう。'],
-  ];
-  const [, rank, comment] = grades.find(([min]) => rate >= min);
+  const [, rank, comment] = QUIZ.grades.find(([min]) => rate >= min);
 
   $('result-rank').textContent = rank;
   $('result-correct').textContent = correct;
   $('result-total').textContent = total;
   $('result-comment').textContent = comment;
 
-  $('review-list').innerHTML = state.answers.map(({ bird, picked, correct: ok }) => `
+  $('review-list').innerHTML = state.answers.map(({ question: q, picked, correct: ok }) => {
+    const answer = byId[q.answer];
+    const sub = QUIZ.reviewSub ? QUIZ.reviewSub(q, answer) : answer.name;
+    return `
     <li>
       <span class="mark ${ok ? 'ok' : 'ng'}">${ok ? '○' : '×'}</span>
       <span class="review-body">
-        <span class="review-title">${bird.name}</span><br>
-        <span class="review-sub">${groupLabel[bird.group]}／${bird.region}${
+        <span class="review-title">${q.title}</span><br>
+        <span class="review-sub">${sub}${
           ok ? '' : ` — 回答: <span class="picked">${byId[picked].name}</span>`
         }</span>
       </span>
-    </li>`).join('');
+    </li>`;
+  }).join('');
 
   showScreen('result');
 }
@@ -335,14 +355,15 @@ function showResult() {
 /* ---------- テーマ ---------- */
 
 function initTheme() {
-  const saved = (() => { try { return localStorage.getItem('birdquiz.theme'); } catch (_) { return null; } })();
+  const key = `quiz.theme.${QUIZ.id}`;
+  const saved = (() => { try { return localStorage.getItem(key); } catch (_) { return null; } })();
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   document.documentElement.dataset.theme = saved || (prefersDark ? 'dark' : 'light');
 
   $('theme-toggle').addEventListener('click', () => {
-    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    try { localStorage.setItem('birdquiz.theme', next); } catch (_) {}
+    const nextTheme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = nextTheme;
+    try { localStorage.setItem(key, nextTheme); } catch (_) {}
   });
 }
 
@@ -355,9 +376,9 @@ function initKeyboard() {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); next(); }
       return;
     }
-    const i = KEYS.indexOf(e.key);
-    const choices = state.queue[state.index] && state.queue[state.index].choices;
-    if (i >= 0 && choices && choices[i]) { e.preventDefault(); answer(choices[i].id); }
+    const i = KEYS.indexOf(e.key.toUpperCase());
+    const choices = state.queue[state.index].choices;
+    if (i >= 0 && choices[i]) { e.preventDefault(); answer(choices[i].id); }
   });
 }
 

@@ -1,5 +1,9 @@
 /**
- * 世界の鳥クイズのデータ定義
+ * 世界の鳥クイズのデータ
+ *
+ * このファイルだけが題材を知っている。js/engine.js は末尾の QUIZ の形しか
+ * 見ないので、別のクイズを作るときはこのファイルを差し替えればよい。
+ * エンジンは roomhair/architect-quiz と共通。
  *
  * BIRDS: 出題対象であり、選択肢の母集団でもある。1種＝1問。
  *        選択肢は毎問ここから10個を選び直すので、設問ごとに顔ぶれが変わる。
@@ -615,3 +619,74 @@ const BIRDS = [
     note: '人家の軒先に泥と枯草の巣を作る。日本で繁殖した個体は東南アジアまで数千kmを渡る。',
   },
 ];
+
+/* =========================================================
+   ここから下がエンジンに渡す QUIZ。上の GROUPS / BIRDS から
+   組み立てるだけなので、鳥を足すときは BIRDS だけ触ればよい。
+   ========================================================= */
+
+const groupLabel = Object.fromEntries(GROUPS.map((g) => [g.id, g.label]));
+const byGroupId = Object.fromEntries(BIRDS.map((b) => [b.id, b.group]));
+
+function randInt(min, max) {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+const QUIZ = {
+  id: 'bird',
+  title: '世界の鳥あてクイズ',
+  lead: '鳥の写真が表示されます。<br>その鳥の名前を<strong>10個の選択肢</strong>から選んでください。',
+  leadSub: `走鳥類からスズメ目まで、世界の鳥${BIRDS.length}種が出題されます。`,
+  prompt: 'この鳥の名前は？',
+  rosterTitle: '出題される鳥',
+  rosterCount: `全${BIRDS.length}種`,
+  credit: '写真は各種のWikipedia記事の代表画像を実行時に読み込んでいます。著作権は各撮影者に帰属します。',
+
+  keys: '1234567890',
+  choicesPerQuestion: 10,
+
+  // ダミーはまず同じグループから3〜5種を取り、残りを他のグループから埋める。
+  // こうすると「ペンギンばかり」にも「まったくの寄せ集め」にもならない。
+  distractors: (q, pool) => {
+    const group = byGroupId[q.answer];
+    const near = shuffle(pool.filter((c) => byGroupId[c.id] === group));
+    const far = shuffle(pool.filter((c) => byGroupId[c.id] !== group));
+    return near.slice(0, Math.min(near.length, randInt(3, 5))).concat(far);
+  },
+
+  meta: (q) => `${q.taxon}／${q.region}／${q.size}`,
+  detailSub: (q) => q.sci,
+  reviewSub: (q) => `${groupLabel[q.group]}／${q.region}`,
+
+  roster: () => GROUPS.map((g) => {
+    const members = BIRDS.filter((b) => b.group === g.id);
+    return `<li>
+      <span class="roster-group">${g.label}<span class="roster-num">${members.length}種</span></span>
+      <span class="roster-members">${members.map((b) => b.name).join('・')}</span>
+    </li>`;
+  }).join(''),
+
+  grades: [
+    [0.999, '鳥類学者',           '全問正解。図鑑を1冊書けます。'],
+    [0.8,   'バードウォッチャー', '嘴と脚の形まで見えています。'],
+    [0.6,   '愛鳥家',             '世界の主要な鳥はしっかり押さえています。'],
+    [0.4,   '観察見習い',         '大きさ・嘴の形・棲む場所の3点に注目すると絞り込めます。'],
+    [0,     '初学者',             'まずは大きなグループの見分けから。もう一周してみましょう。'],
+  ],
+
+  choices: BIRDS.map((b) => ({ id: b.id, name: b.name, sub: b.sci })),
+
+  questions: BIRDS.map((b) => ({
+    id: b.id,
+    answer: b.id,
+    image: b.image,
+    title: `${b.name}（${b.en}）`,
+    note: b.note,
+    wiki: b.wiki,
+    group: b.group,
+    taxon: b.taxon,
+    region: b.region,
+    size: b.size,
+    sci: b.sci,
+  })),
+};

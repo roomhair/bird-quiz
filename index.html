@@ -11,7 +11,7 @@
 <body>
 
 <header class="site-header">
-  <h1 class="site-title">世界の鳥あてクイズ</h1>
+  <h1 id="site-title" class="site-title"></h1>
   <button id="theme-toggle" class="icon-btn" type="button" aria-label="配色を切り替える">◐</button>
 </header>
 
@@ -19,11 +19,8 @@
 
   <!-- ============ スタート画面 ============ -->
   <section id="screen-start" class="screen">
-    <p class="lead">
-      世界の鳥の写真が1枚表示されます。<br>
-      その鳥の名前を<strong>10個の選択肢</strong>から選んでください。
-    </p>
-    <p class="lead-sub">選択肢の顔ぶれは設問ごとに選び直されます。同じ問題でも並ぶ名前は毎回変わります。</p>
+    <p id="lead" class="lead"></p>
+    <p id="lead-sub" class="lead-sub"></p>
 
     <div class="field">
       <span class="field-label">出題数</span>
@@ -37,7 +34,7 @@
     <button id="btn-start" class="btn btn-primary btn-lg" type="button">スタート</button>
 
     <div class="roster">
-      <p class="roster-title">出題される鳥 <span id="roster-count" class="roster-count"></span></p>
+      <p class="roster-title"><span id="roster-title"></span> <span id="roster-count" class="roster-count"></span></p>
       <ul id="roster-list" class="roster-list"></ul>
       <p class="roster-note">グループは出題の都合でゆるく括ったもので、分類学上の区分とは一致しません。選択肢には同じグループの鳥が優先的に混ざります。</p>
     </div>
@@ -61,7 +58,7 @@
       <figcaption id="photo-caption" class="photo-caption" hidden></figcaption>
     </figure>
 
-    <p class="prompt">この鳥は？</p>
+    <p id="prompt" class="prompt"></p>
 
     <div id="choices" class="choices" role="group" aria-label="鳥を選ぶ"></div>
 
@@ -69,7 +66,7 @@
       <p id="verdict-line" class="verdict-line"></p>
       <div class="detail">
         <h2 id="detail-title" class="detail-title"></h2>
-        <p id="detail-sci" class="detail-sci"></p>
+        <p id="detail-sub" class="detail-sub" hidden></p>
         <p id="detail-meta" class="detail-meta"></p>
         <p id="detail-note" class="detail-note"></p>
         <a id="detail-link" class="detail-link" href="#" target="_blank" rel="noopener">Wikipediaで見る ↗</a>
@@ -98,10 +95,10 @@
 </main>
 
 <footer class="site-footer">
-  <p>写真は各種のWikipedia記事の代表画像を実行時に読み込んでいます。著作権は各撮影者に帰属します。</p>
+  <p id="credit"></p>
 </footer>
 
 <script src="js/data.js"></script>
-<script src="js/app.js"></script>
+<script src="js/engine.js"></script>
 </body>
 </html>
