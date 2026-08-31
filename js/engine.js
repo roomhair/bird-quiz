@@ -14,6 +14,7 @@
      detailSub   (q, answer) => 解説カードの2行目（学名など）
      reviewSub   (q, answer) => 結果一覧の副題。既定は正解の名前
      roster      () => スタート画面の一覧のHTML。既定は選択肢の平坦な一覧
+     levels      [{ id, label, match(q) }] 難易度の選択。既定は出さない
    ========================================================= */
 
 const $ = (id) => document.getElementById(id);
@@ -22,7 +23,9 @@ const KEYS = (QUIZ.keys || 'ASDFGHJKLZXCVBNM').split(''); // 選択肢に順に�
 
 const state = {
   queue: [],       // { question, choices } の配列
+  reserve: [],     // 画像が取れなかった問題と差し替えるための予備
   index: 0,
+  level: null,     // 選択中の難易度（QUIZ.levels がある場合）
   answers: [],     // { question, picked, correct }
   answered: false,
   requestedCount: 10,
@@ -113,25 +116,41 @@ function choicesFor(q) {
   return shuffle([byId[q.answer], ...decoys]);
 }
 
-// できるだけ正解が偏らないように出題を選ぶ
-function buildQueue(count) {
+// 選択中の難易度に合う問題だけを返す
+function pool() {
+  const level = QUIZ.levels && QUIZ.levels.find((l) => l.id === state.level);
+  return level ? QUIZ.questions.filter((q) => level.match(q)) : QUIZ.questions;
+}
+
+// できるだけ正解が偏らないように問題を並べる。
+// 先頭 count 問を出題し、残りは画像が取れなかったときの差し替え用に取っておく。
+function orderQuestions(source) {
   const byAnswer = new Map();
-  for (const q of shuffle(QUIZ.questions)) {
+  for (const q of shuffle(source)) {
     if (!byAnswer.has(q.answer)) byAnswer.set(q.answer, []);
     byAnswer.get(q.answer).push(q);
   }
   const groups = shuffle([...byAnswer.values()]);
   const picked = [];
-  for (let round = 0; picked.length < QUIZ.questions.length; round++) {
+  for (let round = 0; picked.length < source.length; round++) {
     let added = false;
     for (const g of groups) {
       if (g[round]) { picked.push(g[round]); added = true; }
     }
     if (!added) break;
   }
-  const total = count > 0 ? Math.min(count, picked.length) : picked.length;
-  return shuffle(picked.slice(0, total))
-    .map((question) => ({ question, choices: choicesFor(question) }));
+  return picked;
+}
+
+function entryFor(question) {
+  return { question, choices: choicesFor(question) };
+}
+
+function buildQueue(count) {
+  const ordered = orderQuestions(pool());
+  const total = count > 0 ? Math.min(count, ordered.length) : ordered.length;
+  state.reserve = shuffle(ordered.slice(total)).map(entryFor);
+  return shuffle(ordered.slice(0, total)).map(entryFor);
 }
 
 function showScreen(name) {
@@ -165,17 +184,47 @@ function applyCopy() {
     ? QUIZ.roster()
     : QUIZ.choices.map((c) => `<li>${c.name}<span>${c.sub || ''}</span></li>`).join('');
 
-  // 出題数の選択肢は問題数に合わせて出し入れする
-  document.querySelectorAll('.seg-btn').forEach((btn) => {
-    const n = Number(btn.dataset.count);
-    btn.hidden = n > 0 && n >= QUIZ.questions.length;
+  buildLevels();
+  syncCountOptions();
+}
+
+// QUIZ.levels があれば難易度の選択を出す
+function buildLevels() {
+  const field = $('level-field');
+  if (!field || !QUIZ.levels) return;
+  field.hidden = false;
+  $('level-seg').innerHTML = QUIZ.levels
+    .map((l, i) => `<button type="button" class="seg-btn${i ? '' : ' is-active'}" data-level="${l.id}"` +
+                   ` role="radio" aria-checked="${!i}">${l.label}</button>`)
+    .join('');
+  state.level = QUIZ.levels[0].id;
+  $('level-seg').querySelectorAll('.seg-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      $('level-seg').querySelectorAll('.seg-btn').forEach((b) => {
+        b.classList.toggle('is-active', b === btn);
+        b.setAttribute('aria-checked', String(b === btn));
+      });
+      state.level = btn.dataset.level;
+      syncCountOptions();
+    });
   });
-  const visible = [...document.querySelectorAll('.seg-btn')].filter((b) => !b.hidden);
-  selectCount(visible[0]);
+}
+
+// 出題数の選択肢は、選択中の難易度で解ける問題数に合わせて出し入れする
+function syncCountOptions() {
+  const available = pool().length;
+  const buttons = [...$('count-seg').querySelectorAll('.seg-btn')];
+  buttons.forEach((btn) => {
+    const n = Number(btn.dataset.count);
+    btn.hidden = n > 0 && n >= available;
+  });
+  fill('count-note', QUIZ.levels ? `この難易度の問題は${available}問あります` : null);
+  const visible = buttons.filter((b) => !b.hidden);
+  if (!visible.some((b) => b.classList.contains('is-active'))) selectCount(visible[0]);
 }
 
 function selectCount(btn) {
-  document.querySelectorAll('.seg-btn').forEach((b) => {
+  $('count-seg').querySelectorAll('.seg-btn').forEach((b) => {
     b.classList.toggle('is-active', b === btn);
     b.setAttribute('aria-checked', String(b === btn));
   });
@@ -184,7 +233,7 @@ function selectCount(btn) {
 
 function initStart() {
   applyCopy();
-  document.querySelectorAll('.seg-btn').forEach((btn) => {
+  $('count-seg').querySelectorAll('.seg-btn').forEach((btn) => {
     btn.addEventListener('click', () => selectCount(btn));
   });
   $('btn-start').addEventListener('click', startQuiz);
@@ -238,7 +287,7 @@ async function renderQuestion() {
   const info = await resolveImage(q);
   if (state.queue[state.index].question.id !== token) return;
 
-  if (!info) { failPhoto('写真を読み込めませんでした。<br>オフラインの可能性があります。'); return; }
+  if (!info) { swapOrFail('写真を読み込めませんでした。<br>オフラインの可能性があります。'); return; }
 
   img.onload = () => {
     if (state.queue[state.index].question.id !== token) return;
@@ -247,7 +296,7 @@ async function renderQuestion() {
   };
   img.onerror = () => {
     if (state.queue[state.index].question.id !== token) return;
-    failPhoto('写真を読み込めませんでした。');
+    swapOrFail('写真を読み込めませんでした。');
   };
   img.src = info.url;
   q._source = info;
@@ -255,7 +304,14 @@ async function renderQuestion() {
   prefetch(state.queue[state.index + 1]);
 }
 
-function failPhoto(message) {
+// 写真が取れない問題は、予備の問題と静かに差し替えて出題数を保つ。
+// Wikipedia に記事が無い建築が混じっていても、遊ぶ側には見えない。
+function swapOrFail(message) {
+  if (state.reserve.length) {
+    state.queue[state.index] = state.reserve.shift();
+    renderQuestion();
+    return;
+  }
   $('photo-frame').classList.remove('is-ready');
   $('photo-status').innerHTML = message;
 }
