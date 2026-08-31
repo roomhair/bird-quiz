@@ -266,7 +266,7 @@ body {
   margin-bottom: 20px;
 }
 .detail-title { font-size: 18px; margin: 0 0 2px; }
-.detail-sci { font-size: 13px; font-style: italic; color: var(--ink-mute); margin: 0 0 6px; }
+.detail-sub { font-size: 13px; font-style: italic; color: var(--ink-mute); margin: 0 0 6px; }
 .detail-meta { font-size: 13px; color: var(--ink-mute); margin: 0 0 10px; }
 .detail-note { font-size: 14px; margin: 0 0 12px; }
 .detail-link { font-size: 13px; color: var(--accent); text-decoration: none; }

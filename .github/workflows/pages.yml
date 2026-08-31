@@ -1,10 +1,7 @@
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches:
-      - main
-      - claude/bird-quiz-creation-b1qta3
+  push:          # build は全ブランチで走る。deploy は main のときだけ（下の if）
   workflow_dispatch:
 
 permissions:
@@ -13,7 +10,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

@@ -18,8 +18,8 @@ html = html.replace(
 );
 
 html = html.replace(
-  /[ \t]*<script src="js\/data\.js"><\/script>\n[ \t]*<script src="js\/app\.js"><\/script>\n/,
-  `<script>\n${read('js/data.js').trimEnd()}\n${read('js/app.js').trimEnd()}\n</script>\n`
+  /[ \t]*<script src="js\/data\.js"><\/script>\n[ \t]*<script src="js\/engine\.js"><\/script>\n/,
+  `<script>\n${read('js/data.js').trimEnd()}\n${read('js/engine.js').trimEnd()}\n</script>\n`
 );
 
 for (const leftover of [/href="css\//, /src="js\//]) {
